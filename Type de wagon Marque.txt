@@ -1,0 +1,6 @@
+Type de wagon,Marque (souvent dispo),Couleur,Pourquoi pour l'Inglenook ?
+Citerne Shell,Minitrix / Fleischmann,Jaune,Visible de très loin.
+Wagon Frigo STEF,Arnold / Fleischmann,Blanc,Contraste maximum avec le ballast.
+Wagon de bière,Divers,Blanc/Jaune,Souvent des logos très graphiques.
+Tombereau DB,Fleischmann,Brun Ocre,"Forme basse, facilite la saisie visuelle."
+Citerne Azur,Arnold,Bleu,Change du rouge/jaune/vert.
