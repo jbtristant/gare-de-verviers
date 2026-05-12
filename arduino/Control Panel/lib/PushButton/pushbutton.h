@@ -8,15 +8,15 @@
 class PushButton
 {
   public:
-    PushButton(uint8_t pin, uint8_t id);
-    void setCallbackClicked(void (*pushButtonCallbackClicked)(uint8_t));
+    PushButton(uint8_t pin, int id);
+    void setCallbackClicked(void (*pushButtonCallbackClicked)(int));
     void begin();
     void process();
 
   private:
-    void (*_pushButtonCallbackClicked)(uint8_t);
+    void (*_pushButtonCallbackClicked)(int);
     uint8_t m_pin;
-    uint8_t m_id;
+    int m_id;
     int m_state;
     int m_lastState;
     unsigned long m_time;

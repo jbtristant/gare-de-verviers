@@ -4,7 +4,7 @@
 
 #include "pushbutton.h"
 
-PushButton::PushButton(uint8_t pin, uint8_t id)
+PushButton::PushButton(uint8_t pin, int id)
 {
   m_pin = pin;
   m_id = id;
@@ -30,7 +30,7 @@ void PushButton::process()
   }
 }
 
-void PushButton::setCallbackClicked(void (*pushButtonCallbackClicked)(uint8_t))
+void PushButton::setCallbackClicked(void (*pushButtonCallbackClicked)(int))
 {
   _pushButtonCallbackClicked = pushButtonCallbackClicked;
 }
