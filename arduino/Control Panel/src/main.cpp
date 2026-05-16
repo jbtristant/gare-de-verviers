@@ -6,12 +6,13 @@
 #include "led.h"
 #include "pushbutton.h"
 #include "rotaryswitch.h"
+#include "images.h"
+#include "commandstationclient.h"
 
 #include <SPI.h>
 #include <Ethernet.h>
-//#include <DCCEXProtocol.h>
-
 #include <Adafruit_NeoPixel.h>
+#include <U8g2lib.h>
 
 #ifdef __AVR__
 #include <avr/power.h> // Required for 16 MHz Adafruit Trinket
@@ -33,35 +34,31 @@ byte mac[] = {
 };
 
 EthernetClient client;
-//DCCEXProtocol dccexProtocol;
+CommandStationClient commandStationClient(client, Serial);
 
 Adafruit_NeoPixel WS2812B(NUM_PIXELS, PIN_WS2812B, NEO_GRB + NEO_KHZ800);
-
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 PushButton pushButton(7, 0);
 Led led(LED_BUILTIN);
 RotarySwitch rotarySwitch(ROTARY_SWITCH_SW_PIN, ROTARY_SWITCH_CLK_PIN, ROTARY_SWITCH_DT_PIN, 0, true);
 
 
+bool lastConnectionStatus = false;
 bool alerteVisible = true;
 unsigned long lastBreathing = 0;
+unsigned long lastOledDisplay = 0;
 const int BREATHING = 25; // Vitesse du clignotement en ms
 int throttle = 0; 
 
 IPAddress commandStationIP(192,168,11,53);
 const uint16_t commandStationPort = 2560;
 
-/// TCP Reading
-char inData[32];
-char inChar = -1;
-byte arraySize = 0;
-
 void connectToCommandStation();
 void onRotarySwitchClicked(uint8_t id);
 void onRotarySwitchChanged(uint8_t id, bool clockWize);
 void updateThrottleDisplay(int throttleValue);
 void on_pushButton_pushed(int id);
-void processMessage();
-void processCmd(char data[], byte size);
+void updateOLED();
 
 // ========================
 // Initialisation programme
@@ -102,12 +99,13 @@ void setup() {
         }
     Serial.println();
 
-    connectToCommandStation();
-
     WS2812B.begin();
     WS2812B.setBrightness(32);
     WS2812B.clear();
     WS2812B.show();
+
+    u8g2.begin();
+    u8g2.enableUTF8Print();
 
     pushButton.setCallbackClicked(on_pushButton_pushed);
     pushButton.begin();
@@ -117,19 +115,43 @@ void setup() {
     rotarySwitch.setCallbackClicked(onRotarySwitchClicked);
     rotarySwitch.setRotaryCallbackChanged(onRotarySwitchChanged);
 
-    rotarySwitch.begin();
+    //rotarySwitch.begin();
 
     // Affichage de la valeur initiale du compteur, sur le moniteur série
     Serial.print(F("Valeur initiale du compteur = "));
     Serial.println(throttle);
 
+    connectToCommandStation();
+
 }
 
-// =================
-// Boucle principale
-// =================
+void connectToCommandStation()
+{
+    bool currentConnectionStatus = client.connected();
+
+    if (currentConnectionStatus && !lastConnectionStatus) {
+        Serial.println(F("Connected at CommandStation"));
+        commandStationClient.askStatus();
+    }
+
+    if (!currentConnectionStatus && lastConnectionStatus) {
+        Serial.println(F("Disconnected from CommandStation"));
+        client.stop();
+    }
+
+    lastConnectionStatus = currentConnectionStatus;
+
+    if (currentConnectionStatus) {
+        commandStationClient.process();
+    } else {
+        Serial.println(F("Connect to CommandStation"));
+        client.connect(commandStationIP, commandStationPort);
+    }
+}
+
+
 void loop() {
-    rotarySwitch.process(); 
+    //rotarySwitch.process(); 
     pushButton.process();
     
     // Si on est aux limites, on force le rafraîchissement pour le clignotement
@@ -138,27 +160,19 @@ void loop() {
         lastBreathing = millis();
     }
 
-    if (!client.connected()) {
-        Serial.println(F("\nClient déconnecté, tentative de reconexion..."));
-        client.stop();
-        connectToCommandStation();
+    // if (!client.connected()) {
+    //     Serial.println(F("\nClient déconnecté, tentative de reconexion..."));
+    //     client.stop();
+    //     commandStationClient.connectToCommandStation();
+    // }
+
+    connectToCommandStation();
+
+    if (lastOledDisplay + 100 < millis()) {
+        updateOLED();
+        lastOledDisplay = millis();
     }
-
-    processMessage();
-}
-
-void connectToCommandStation()
-{
-    while (!client.connect(commandStationIP, commandStationPort)) {
-        Serial.println(F("Connexion to CommandStation..."));
-        delay(2000);
-    }
-
-    Serial.println(F("Connecté à CommandStation"));
-    client.print(F("<s>"));
-
-    //dcc.setLogStream(&Serial);
-    //dcc.connect(&client);
+    
 }
 
 void on_pushButton_pushed(int id)
@@ -169,6 +183,7 @@ void on_pushButton_pushed(int id)
 
     switch (id) {
         case 0:
+        Serial.println(F("<1>"));
         client.print(F("<1>"));
         break;
     }
@@ -270,66 +285,33 @@ void updateThrottleDisplay(int throttleValue) {
     WS2812B.show();
 }
 
-void processMessage()
+
+
+
+
+void updateOLED() 
 {
-    while (client.available() > 0) {
-        if (arraySize < 31) { // One less than the size of the array
-            inChar = client.read(); // Read a character
-            if (inChar == '<') {
-                arraySize = 0;
-                return;
-            }
-            if (inChar == '>') {
-                inData[arraySize] = '\0';
-                processCmd(inData, arraySize);
-            }
-            inData[arraySize] = inChar; // Store it
-            arraySize++; // Increment where to write next
-            inData[arraySize] = '\0'; // Null terminate the string
-        } else {
-            arraySize = 0;
-        }
-    }
-}
+    u8g2.clearBuffer();
+    
+    // Cadre décoratif style ancien
+    //u8g2.drawFrame(0, 0, 128, 64);
+    //u8g2.drawLine(0, 15, 128, 15);
 
-void processCmd(char data[], byte size)
-{
-    Serial.println(inData);
-    // On vérifie si le premier caractère est un 'l' (minuscule)
-    if (data[0] == 'l') {
-        int cabid, slot, speedbyte;
-        long functionMap;
+    // Titre avec accents
+    u8g2.setFont(u8g2_font_haxrcorp4089_tr);
+    u8g2.drawUTF8(5, 12, "Gare de Verviers-Central");
 
-        // sscanf cherche le format : l [espace] entier [espace] entier...
-        // On commence à data+1 pour ignorer le 'l'
-        int matched = sscanf(data + 1, "%d %d %d %ld", &cabid, &slot, &speedbyte, &functionMap);
+    // Valeur du Throttle
+    //u8g2.setFont(u8g2_font_logisoso32_tf); // Grande police pour la vitesse
+    char buf[8];
+    itoa(throttle, buf, 10);
+    u8g2.drawStr(0, 50, buf);
 
-        if (matched >= 3) {
-            int realThrottle = 0;
+    u8g2.drawXBMP(0, 14, 24, 24, epd_bitmap_icons8_snail_24);
+    u8g2.drawXBMP(26, 14, 24, 24, epd_bitmap_icons8_turtle_24);
+    u8g2.drawXBMP(52, 14, 24, 24, epd_bitmap_icons8_rabbit_24);
+    u8g2.drawXBMP(78, 14, 24, 24, epd_bitmap_icons8_hummingbird_24);
+    u8g2.drawXBMP(104, 14, 24, 24, epd_bitmap_icons8_cat_24);
 
-            // Conversion du SpeedByte en ton système (-127 à 127)
-            if (speedbyte >= 130) {
-                realThrottle = speedbyte - 129; // Marche avant
-            } else if (speedbyte >= 2 && speedbyte <= 127) {
-                realThrottle = -(speedbyte - 1); // Marche arrière
-            } else {
-                realThrottle = 0; // Arrêt (0 ou 128)
-            }
-
-            // Filtrage : On ne met à jour que si c'est notre loco (64)
-            if (cabid == 64) {
-                throttle = realThrottle;
-                updateThrottleDisplay(throttle);
-                
-                Serial.print(F("Update Reçu - Loco 64 | Vitesse: "));
-                Serial.println(throttle);
-            }
-        }
-    } else if (data[0] == 'X') {
-        Serial.println(F("Commande refusée par la centrale."));
-    } else {
-        // Affiche les autres messages (ID, Power status, etc.)
-        Serial.print(F("Autre message : "));
-        Serial.println(data);
-    }
+    u8g2.sendBuffer(); // Envoi d'un coup, très fluide sur Mega
 }
