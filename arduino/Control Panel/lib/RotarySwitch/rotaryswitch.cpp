@@ -7,11 +7,28 @@
 #include "pins_arduino.h"
 
 
-static inline uint8_t fastDigitalRead(uint8_t pin) {
-    if (pin < 8) return (PIND & (1 << pin)) ? HIGH : LOW;
-    if (pin < 14) return (PINB & (1 << (pin - 8))) ? HIGH : LOW;
-    return LOW; // Sécurité pour les autres pins
-}
+#if defined(__AVR_ATmega2560__)
+    // Code spécifique à l'Arduino Mega 2560
+    static inline uint8_t fastDigitalRead(uint8_t pin) {
+        // Pin 2 (PE4), Pin 3 (PE5), Pin 5 (PE3) -> Toutes sur le Port E
+        if (pin == 2) return (PINE & (1 << 4)) ? HIGH : LOW;
+        if (pin == 3) return (PINE & (1 << 5)) ? HIGH : LOW;
+        if (pin == 5) return (PINE & (1 << 3)) ? HIGH : LOW;
+        return digitalRead(pin); // Sécurité
+    }
+
+#elif defined(__AVR_ATmega328P__)
+    // Code spécifique à l'Arduino Uno / Nano / Pro Mini
+    static inline uint8_t fastDigitalRead(uint8_t pin) {
+        if (pin < 8) return (PIND & (1 << pin)) ? HIGH : LOW;
+        if (pin < 14) return (PINB & (1 << (pin - 8))) ? HIGH : LOW;
+        return LOW; // Sécurité pour les autres pins
+    }
+
+#else
+    // Code générique ou pour d'autres cartes
+    return digitalRead(pin);
+#endif
 
 RotarySwitch* RotarySwitch::s_instance = nullptr;
 
@@ -81,6 +98,7 @@ void RotarySwitch::setRotaryCallbackChanged(void (*rotaryCallbackChanged)(uint8_
 void RotarySwitch::isrClkBridge()
 {
     if (s_instance != nullptr) {
+        //Serial.println(F("Read Clk and DT state"));
         s_instance->m_statePinClk = fastDigitalRead(s_instance->m_pinClk);
         s_instance->m_statePinDt = fastDigitalRead(s_instance->m_pinDt);
     }

@@ -58,6 +58,7 @@ void onRotarySwitchClicked(uint8_t id);
 void onRotarySwitchChanged(uint8_t id, bool clockWize);
 void updateThrottleDisplay(int throttleValue);
 void on_pushButton_pushed(int id);
+void on_locoSpeed_changed(uint16_t address, int8_t speed, Direction direction);
 void updateOLED();
 
 // ========================
@@ -115,7 +116,9 @@ void setup() {
     rotarySwitch.setCallbackClicked(onRotarySwitchClicked);
     rotarySwitch.setRotaryCallbackChanged(onRotarySwitchChanged);
 
-    //rotarySwitch.begin();
+    rotarySwitch.begin();
+
+    commandStationClient.setLocoSpeedChangedCallback(on_locoSpeed_changed);
 
     // Affichage de la valeur initiale du compteur, sur le moniteur série
     Serial.print(F("Valeur initiale du compteur = "));
@@ -151,7 +154,7 @@ void connectToCommandStation()
 
 
 void loop() {
-    //rotarySwitch.process(); 
+    rotarySwitch.process(); 
     pushButton.process();
     
     // Si on est aux limites, on force le rafraîchissement pour le clignotement
@@ -183,16 +186,18 @@ void on_pushButton_pushed(int id)
 
     switch (id) {
         case 0:
-        Serial.println(F("<1>"));
-        client.print(F("<1>"));
+        //Serial.println(F("<1>"));
+        //client.print(F("<1>"));
+        commandStationClient.askCurrentValues();
+        commandStationClient.askMaxCurrentValues();
         break;
     }
 }
 
 void onRotarySwitchClicked(uint8_t id)
 {
-        Serial.println("<t 64 0 1>");
-        client.print("<t 64 0 1>");
+    Serial.println(F("Rotary switch ask loco Info"));
+    commandStationClient.askLocoInfo(64);
 }
 
 
@@ -201,13 +206,13 @@ void onRotarySwitchChanged(uint8_t id, bool clockWize)
     int pas = 4; 
     if (clockWize) {
         throttle = min(throttle + pas, 127);
-        //Serial.print(F("Sens = horaire | Valeur du compteur = "));
+        Serial.print(F("Sens = horaire | Valeur du compteur = "));
     } else {
         throttle = max(throttle - pas, -127);
-        //Serial.print(F("Sens = antihoraire | Valeur du compteur = "));
+        Serial.print(F("Sens = antihoraire | Valeur du compteur = "));
     }
     if (abs(throttle) <= 1) throttle = 0;
-    //Serial.println(throttle);
+    Serial.println(throttle);
 
     // --- ENVOI À LA CENTRALE ---
     // Exemple pour la loco adresse 3 (adresse par défaut souvent)
@@ -228,6 +233,13 @@ void onRotarySwitchChanged(uint8_t id, bool clockWize)
     //updateThrottleDisplay(throttle);   
 }
 
+void on_locoSpeed_changed(uint16_t address, int8_t speed, Direction direction)
+{
+    Serial.print("Speed: ");
+    Serial.println(speed);
+    updateThrottleDisplay(speed);
+}
+
 
 uint8_t gammaCorrect(uint8_t val) {
     // Formule simple (x^2 / 255) qui redonne du contraste
@@ -238,7 +250,8 @@ uint8_t gammaCorrect(uint8_t val) {
 void updateThrottleDisplay(int throttleValue) {
     // 1. Core Logic & Direction
     bool isReverse = (throttleValue < 0);
-    uint8_t absValue = min(abs(throttleValue), 127);
+    int safeVal = isReverse ? -throttleValue : throttleValue;
+    uint8_t absValue = (safeVal > 127) ? 127 : safeVal;
     bool isLimitReached = (absValue >= 127);
     
     // 2. Alert / Breathing Logic
