@@ -1,8 +1,7 @@
 #pragma once
 
-#include <Arduino.h>
-// #include <SPI.h>
-//#include <Ethernet.h>
+#include <Arduino_FreeRTOS.h>
+#include <semphr.h>
 
 #include "types.h"
 #include "commandqueue.h"
@@ -18,9 +17,13 @@ constexpr unsigned int sendCommandInterval = 40;
 
 class CommandStationClient {
 public:
-  explicit CommandStationClient(Stream &stream, Stream &logStream);
+  explicit CommandStationClient(Stream &stream, SemaphoreHandle_t &xStreamSemaphore, 
+                                Stream &logStream, SemaphoreHandle_t &xLogSemaphore);
 
-  void process();
+  static void TaskProcessMessageStatic(void *pvParameters);
+  static void TaskProcessPendingCommandStatic(void *pvParameters);
+  void taskProcessMessage();
+  void taskProcessPendingCommand();
 
   // Commandes
   void askStatus();
@@ -77,7 +80,6 @@ private:
     bool isPending = false;
   };
 
-  void processMessage();
   void processCmd(char data[], byte size);
 
   void handlePowerTrackState(char data[], byte size);
@@ -91,12 +93,13 @@ private:
                             Direction direction);
   void (*_turnoutStateChanged)(uint16_t id, TurnoutState state);
 
-  void processPendingCommand();
 
   CommandQueue m_queue;
 
   Stream &m_stream;
   Stream &m_logStream;
+  SemaphoreHandle_t &m_xStreamSemaphore;
+  SemaphoreHandle_t &m_xLogStreamSemaphore;
 
   char inData[256];
   char inChar = -1;

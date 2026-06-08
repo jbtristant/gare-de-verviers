@@ -1,348 +1,138 @@
 /*
-	Created by Jean-Benoit Tristant, May 11, 2026
+        Created by Jean-Benoit Tristant, May 11, 2026
 */
 
-#include "Arduino.h"
-#include "led.h"
-#include "pushbutton.h"
-#include "rotaryswitch.h"
-#include "images.h"
-#include "commandstationclient.h"
-#include "mainmenu.h"
-#include "turnout.h"
+#include <Arduino.h>
+#include <Arduino_FreeRTOS.h>
+#include <queue.h>
+#include <semphr.h>
 
-#include <SPI.h>
-//#include <Ethernet.h>
-#include <Adafruit_NeoPixel.h>
-#include <U8g2lib.h>
+SemaphoreHandle_t xSerialSemaphore;
+SemaphoreHandle_t xSerial2Semaphore;
 
-#ifdef __AVR__
-#include <avr/power.h> // Required for 16 MHz Adafruit Trinket
-#endif
+TaskHandle_t TaskDccReaderHandle = NULL;
 
-// Constantes
-#define ROTARY_SWITCH_SW_PIN  2       // La pin D2 de l'Arduino recevra la ligne SW du module KY-040
-#define ROTARY_SWITCH_CLK_PIN 3       // La pin D3 de l'Arduino recevra la ligne CLK du module KY-040
-#define ROTARY_SWITCH_DT_PIN  5       // La pin D4 de l'Arduino recevra la ligne DT du module KY-040
+void vTaskDccReader(void *pvParameters);
 
-#define PIN_WS2812B 6  // Arduino pin that connects to WS2812B
-#define NUM_PIXELS 12  // The number of LEDs (pixels) on WS2812B
+QueueHandle_t xSerialCharQueue = NULL;
 
-#define DELAY_INTERVAL 250 // 250ms pause between each pixel
-
-byte mac[] = {
-  0x42, 0x34, 0x34,
-  0x00, 0x00, 0x02
-};
-
-//EthernetClient client;
-CommandStationClient commandStationClient(Serial2, Serial);
-
-Adafruit_NeoPixel WS2812B(NUM_PIXELS, PIN_WS2812B, NEO_GRB + NEO_KHZ800);
-U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
-PushButton pushButton(7, 0);
-Led led(LED_BUILTIN);
-RotarySwitch rotarySwitch(ROTARY_SWITCH_SW_PIN, ROTARY_SWITCH_CLK_PIN, ROTARY_SWITCH_DT_PIN, 0, true);
-
-MainMenu mainMenu;
-
-
-//bool lastConnectionStatus = false;
-bool alerteVisible = true;
-//unsigned long lastBreathing = 0;
-unsigned long lastOledDisplay = 0;
-//const int BREATHING = 25; // Vitesse du clignotement en ms
-// int8_t throttle = 0; 
-unsigned long startupTime = 0;
-bool rostersAsked = false;
-bool turnoutsAsked = false;
-
-//IPAddress commandStationIP(192,168,11,53);
-//const uint16_t commandStationPort = 2560;
-
-//void connectToCommandStation();
-void onRotarySwitchClicked(uint8_t id);
-void onRotarySwitchChanged(uint8_t id, bool clockWize);
-void updateThrottleDisplay(int8_t throttleValue, Direction direction);
-void on_pushButton_pushed(int id);
-void on_track_changed();
-void on_locoSpeed_changed(uint16_t address, int8_t speed, Direction direction);
-void on_turnoutState_changed(uint16_t id, TurnoutState state);
-void updateOLED();
+void vTaskRxInterruptEmulator(void *pvParameters);
+void vTaskDccProcessor(void *pvParameters);
 
 // ========================
 // Initialisation programme
 // ========================
 void setup() {
+  Serial.begin(115200);
+  Serial2.begin(115200);
 
-    // Initialisation de la liaison série (arduino nano <-> PC)
-    Serial.begin(115200);
-    Serial2.begin(115200);
-    // Serial.println(F("Start ethernet"));
+  //   if (xSerialSemaphore == NULL) // Check to confirm that the Serial
+  //   Semaphore
+  //                                 // has not already been created.
+  //   {
+  //     xSerialSemaphore =
+  //         xSemaphoreCreateMutex(); // Create a mutex semaphore we will use to
+  //                                  // manage the Serial Port
+  //     if ((xSerialSemaphore) != NULL)
+  //       xSemaphoreGive((xSerialSemaphore)); // Make the Serial Port available
+  //       for
+  //                                           // use, by "Giving" the
+  //                                           Semaphore.
+  //   }
 
-    // if (Ethernet.begin(mac) == 0) {
-    //     Serial.println(F("Failed to configure Ethernet using DHCP"));
-    //     // no point in carrying on, so do nothing forevermore:
-    //     while(true);
-    // }
+  //   if (xSerial2Semaphore == NULL) {
+  //     xSerial2Semaphore = xSemaphoreCreateMutex();
+  //     if ((xSerial2Semaphore) != NULL)
+  //       xSemaphoreGive((xSerial2Semaphore));
+  //   }
 
-    // // Check for Ethernet hardware present
-    // if (Ethernet.hardwareStatus() == EthernetNoHardware) {
-    //     Serial.println("Ethernet shield was not found.  Sorry, can't run without hardware. :(");
-    //     while (true) {
-    //     delay(1); // do nothing, no point running without Ethernet hardware
-    //     }
-    // }
-    // while (Ethernet.linkStatus() == LinkOFF) {
-    //     Serial.println("Ethernet cable is not connected.");
-    //     delay(500);
-    // }
+  xSerialCharQueue = xQueueCreate(255, sizeof(char));
 
-    // // give the Ethernet shield a second to initialize:
-    // delay(1000);
+  if (xSerialCharQueue != NULL) {
+    // Tâche 1: Lecture ultra-rapide (Producteur)
+    xTaskCreate(vTaskRxInterruptEmulator, "RxRead", 100, NULL, 2, NULL);
 
-    // // print your local IP address:
-    // Serial.print(F("My IP address: "));
-    // for (byte thisByte = 0; thisByte < 4; thisByte++) {
-    //     // print the value of each byte of the IP address:
-    //     Serial.print(Ethernet.localIP()[thisByte], DEC);
-    //     Serial.print(".");
-    //     }
-    // Serial.println();
+    // Tâche 2: Traitement et renvoi (Consommateur)
+    xTaskCreate(vTaskDccProcessor, "DccProc", 200, NULL, 2, NULL);
 
-    WS2812B.begin();
-    WS2812B.setBrightness(32);
-    WS2812B.clear();
-    WS2812B.show();
+    Serial.println(F("Initialisation FreeRTOS OK !"));
+  } else {
+    // Ce message t'aurait sauvé la mise !
+    Serial.println(F("ERREUR FATALE : Impossible d'allouer la RAM pour la Queue."));
+  }
 
-    u8g2.begin();
-    u8g2.enableUTF8Print();
-
-    pushButton.setCallbackClicked(on_pushButton_pushed);
-    pushButton.begin();
-
-    led.begin();
-
-    rotarySwitch.setCallbackClicked(onRotarySwitchClicked);
-    rotarySwitch.setRotaryCallbackChanged(onRotarySwitchChanged);
-
-    rotarySwitch.begin();
-
-    mainMenu.initialize(&commandStationClient, &u8g2);
-
-    commandStationClient.setTrackChangedCallback(on_track_changed);
-    commandStationClient.setLocoSpeedChangedCallback(on_locoSpeed_changed);
-    commandStationClient.setTurnoutStateChangedCallback(on_turnoutState_changed);
-
-    // Affichage de la valeur initiale du compteur, sur le moniteur série
-    // Serial.print(F("Valeur initiale du compteur = "));
-    // Serial.println(throttle);
-
-    //connectToCommandStation();
-    commandStationClient.askStatus();
-    startupTime = millis();
-    //commandStationClient.askRosters();
-    //commandStationClient.askTurnouts();
+  // xTaskCreate(
+  //     vTaskDccReader, "DccRead",
+  //     128, // Petite stack suffisante pour du pur bypass
+  //     NULL,
+  //     3, // Priorité haute pour ne pas se faire couper par l'IHM ou l'OLED
+  //     &TaskDccReaderHandle);
 }
 
-// void connectToCommandStation()
-// {
-//     bool currentConnectionStatus = client.connected();
+void loop() {}
 
-//     if (currentConnectionStatus && !lastConnectionStatus) {
-//         Serial.println(F("Connected at CommandStation"));
-//         commandStationClient.askStatus();
-//         commandStationClient.askRosters();
-//     }
+// Tâche de lecture / réécriture directe
+void vTaskDccReader(void *pvParameters) {
+  (void)pvParameters;
 
-//     if (!currentConnectionStatus && lastConnectionStatus) {
-//         Serial.println(F("Disconnected from CommandStation"));
-//         client.stop();
-//     }
-
-//     lastConnectionStatus = currentConnectionStatus;
-
-//     if (currentConnectionStatus) {
-//         commandStationClient.process();
-//     } else {
-//         Serial.println(F("Connect to CommandStation"));
-//         client.connect(commandStationIP, commandStationPort);
-//     }
-// }
-
-
-void loop() {
-    rotarySwitch.process(); 
-    pushButton.process();
-
-    if (!rostersAsked && startupTime > millis() + 400) {
-        Serial.println(F("Loop Roster ask"));
-        commandStationClient.askRosters();
-        rostersAsked = true;
+  for (;;) {
+    // TANT QU'IL y a des octets dans le buffer matériel du Mega
+    while (Serial2.available() > 0) {
+      char c = Serial2.read();
+      Serial.write(c); // On le recrache immédiatement vers le PC
     }
 
-    if (!turnoutsAsked && startupTime > millis() + 800) {
-        Serial.println(F("Loop Turnouts ask"));
-        commandStationClient.askTurnouts();
-        turnoutsAsked = true;
+    // Une fois le buffer matériel vide, on relâche le CPU
+    // juste 1 tick (1ms) pour laisser les autres tâches s'exécuter.
+    vTaskDelay(pdMS_TO_TICKS(1));
+  }
+}
+
+// 1. Tâche de capture : Ne fait aucun calcul, elle stocke juste.
+void vTaskRxInterruptEmulator(void *pvParameters) {
+  (void)pvParameters;
+
+  Serial.println(F("-> Tâche RxRead (Producteur) est EN LIGNE."));
+
+  for (;;) {
+    // S'il y a des données qui attendent dans le gros buffer matériel
+    if (Serial2.available() > 0) {
+      
+      // On vide tout d'un coup dans la file FreeRTOS
+      while (Serial2.available() > 0) {
+        char c = Serial2.read();
+        xQueueSendToBack(xSerialCharQueue, &c, 0);
+      }
+      
+      // On a fini de vider, on force FreeRTOS à passer à la tâche 
+      // de traitement (Consommateur) SANS ATTENDRE le prochain tick.
+      taskYIELD(); 
+      
+    } else {
+      // S'il n'y a rien à lire sur la ligne, on s'endort 1 tick (15ms) 
+      // pour laisser le CPU aux écrans et aux boutons.
+      vTaskDelay(1);
     }
-    
-    // Si on est aux limites, on force le rafraîchissement pour le clignotement
-    // if ((abs(throttle) >= 127) && (millis() - lastBreathing >= BREATHING)) {
-    //     updateThrottleDisplay(throttle);
-    //     lastBreathing = millis();
-    // }
-
-    // if (!client.connected()) {
-    //     Serial.println(F("\nClient déconnecté, tentative de reconexion..."));
-    //     client.stop();
-    //     commandStationClient.connectToCommandStation();
-    // }
-
-    // connectToCommandStation();
-    commandStationClient.process();
-
-    // if (lastOledDisplay + 100 < millis()) {
-    //     updateOLED();
-    //     lastOledDisplay = millis();
-    // }
-    
+  }
 }
 
-void on_pushButton_pushed(int id)
-{
-    Serial.print("pushButton ");
-    Serial.print(id);
-    Serial.println(" pressed");
+// 2. Tâche de traitement : Elle consomme la file et envoie vers Serial
+void vTaskDccProcessor(void *pvParameters) {
+  (void)pvParameters;
+  char receivedChar;
 
-    switch (id) {
-        case 0:
-        //Serial.println(F("<1>"));
-        //client.print(F("<1>"));
-        commandStationClient.askCurrentValues();
-        commandStationClient.askMaxCurrentValues();
+  Serial.println(F("-> Tâche DccProc (Consommateur) est EN LIGNE."));
 
-        Locomotive* maLoco = commandStationClient.getLocomotive(0);
-        if (maLoco != nullptr)
-            Serial.println(maLoco->getName());
-        break;
+  // On attend 1 seconde que la centrale DCC soit bien réveillée
+  vTaskDelay(pdMS_TO_TICKS(1000));
+
+  Serial.println(F("Envoi de la commande <s> à la centrale..."));
+  Serial2.println(F("<s>"));
+
+  for (;;) {
+    if (xQueueReceive(xSerialCharQueue, &receivedChar, portMAX_DELAY) ==
+        pdPASS) {
+      Serial.print(receivedChar);
     }
-}
-
-void onRotarySwitchClicked(uint8_t id)
-{
-    Serial.println(F("Rotary switch clicked"));
-    //commandStationClient.askLocoInfo(64);
-    mainMenu.buttonPress();
-}
-
-
-void onRotarySwitchChanged(uint8_t id, bool clockWize)
-{
-    clockWize ? Serial.println(F("Rotary switch turn clockwize")) : Serial.println(F("Rotary switch turn counter clockwize"));
-    clockWize ? mainMenu.menuDown() : mainMenu.menuUp();
-}
-
-void on_track_changed()
-{
-    mainMenu.onTrackChanged();
-}
-
-void on_locoSpeed_changed(uint16_t address, int8_t speed, Direction direction)
-{
-    Serial.print("Speed: ");
-    Serial.println(speed);
-    updateThrottleDisplay(speed, direction);
-    mainMenu.onLocomotiveChanged();
-}
-
-void on_turnoutState_changed(uint16_t id, TurnoutState state)
-{
-    mainMenu.onTurnoutStateChanged(id, state);
-}
-
-uint8_t gammaCorrect(uint8_t val) {
-    // Formule simple (x^2 / 255) qui redonne du contraste
-    return (uint16_t)val * val / 255; 
-}
-
-// Translation of your Premium function
-void updateThrottleDisplay(int8_t throttleValue, Direction direction) {
-    // 1. Core Logic & Direction
-    uint8_t absValue = (throttleValue > 127) ? 127 : throttleValue;
-    bool isLimitReached = (absValue >= 127);
-    
-    // 2. Alert / Breathing Logic
-    float pulse = isLimitReached ? ((sin(millis() / 100.0) + 1.0) / 2.0) : 1.0;
-
-    // 3. Fluid Position Calculation (your 0.2 offset)
-    float precisePosition = 0;
-    if (absValue > 0) {
-        precisePosition = 0.2 + ((float)(absValue - 1) * 11.8 / 126.0);
-    }
-
-    // 4. LED Rendering Loop
-    for (int i = 0; i < NUM_PIXELS; i++) {
-        // Reverse mapping logic
-        int ledIndex = (direction == Direction::Reverse) ? (NUM_PIXELS - 1 - i) : i;
-
-        // Calculate filling intensity (0.0 to 1.0)
-        float diff = precisePosition - i;
-        float fillIntensity = 0.0;
-        if (diff >= 1.0) fillIntensity = 1.0;
-        else if (diff > 0.0) fillIntensity = diff;
-
-        // Color Gradient calculation (Ratio 0.0 to 1.0)
-        float colorRatio = (float)i / (NUM_PIXELS - 1);
-        uint8_t r_raw = 0, g_raw = 0, b_raw = 0;
-
-        if (colorRatio < 0.5) {
-            float segment = colorRatio * 2.0;
-            r_raw = (uint8_t)(255 * segment);
-            g_raw = 255;
-        } else {
-            float segment = (colorRatio - 0.5) * 2.0;
-            r_raw = 255;
-            g_raw = (uint8_t)(255 * (1.0 - segment));
-        }
-
-        // Apply intensity and Gamma Correction
-        uint8_t r = gammaCorrect((uint8_t)(r_raw * fillIntensity * pulse));
-        uint8_t g = gammaCorrect((uint8_t)(g_raw * fillIntensity * pulse));
-        uint8_t b = gammaCorrect((uint8_t)(b_raw * fillIntensity * pulse));
-
-        WS2812B.setPixelColor(ledIndex, WS2812B.Color(r, g, b));
-    }
-    WS2812B.show();
-}
-
-
-
-
-
-void updateOLED() 
-{
-    u8g2.clearBuffer();
-    
-    // Cadre décoratif style ancien
-    //u8g2.drawFrame(0, 0, 128, 64);
-    //u8g2.drawLine(0, 15, 128, 15);
-
-    // Titre avec accents
-    u8g2.setFont(u8g2_font_haxrcorp4089_tr);
-    u8g2.drawUTF8(5, 12, "Gare de Verviers-Central");
-
-    // Valeur du Throttle
-    //u8g2.setFont(u8g2_font_logisoso32_tf); // Grande police pour la vitesse
-    // char buf[8];
-    // itoa(throttle, buf, 10);
-    // u8g2.drawStr(0, 50, buf);
-
-    u8g2.drawXBMP(0, 14, 24, 24, epd_bitmap_icons8_snail_24);
-    u8g2.drawXBMP(26, 14, 24, 24, epd_bitmap_icons8_turtle_24);
-    u8g2.drawXBMP(52, 14, 24, 24, epd_bitmap_icons8_rabbit_24);
-    u8g2.drawXBMP(78, 14, 24, 24, epd_bitmap_icons8_hummingbird_24);
-    u8g2.drawXBMP(104, 14, 24, 24, epd_bitmap_icons8_cat_24);
-
-    u8g2.sendBuffer(); // Envoi d'un coup, très fluide sur Mega
+  }
 }
