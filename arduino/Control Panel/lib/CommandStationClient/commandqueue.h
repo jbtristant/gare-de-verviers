@@ -2,15 +2,16 @@
 
 #include <Arduino.h>
 
+
 #define MAX_QUEUE_SIZE 32
 #define MAX_CMD_LEN 32
 
 class CommandQueue {
 private:
     char queue[MAX_QUEUE_SIZE][MAX_CMD_LEN];
-    uint8_t head = 0; // Index pour lire
-    uint8_t tail = 0; // Index pour écrire
-    uint8_t count = 0; // Nombre d'éléments dans la file
+    volatile uint8_t head = 0; // Index pour lire
+    volatile uint8_t tail = 0; // Index pour écrire
+    volatile uint8_t count = 0; // Nombre d'éléments dans la file
 
 public:
     bool push(const char* cmd) {
@@ -51,6 +52,24 @@ public:
         return true;
     }
 
+    template<typename... Args>
+    bool push(const __FlashStringHelper* fmt, Args... args)
+    {
+        if (count >= MAX_QUEUE_SIZE) return false;
+
+        // snprintf_P lit le format en mémoire Flash. 
+        // Le cast est nécessaire pour lui passer le pointeur.
+        snprintf_P(queue[tail], 
+                   MAX_CMD_LEN, 
+                   reinterpret_cast<const char*>(fmt), 
+                   args...);
+
+        tail = (tail + 1) % MAX_QUEUE_SIZE;
+        count++;
+
+        return true;
+    }
+
     bool pop(char* dest) {
         if (count == 0) return false;
         
@@ -66,8 +85,8 @@ public:
     {
         if (count == 0) return false;
 
-        //Serial.print(F("Pop: "));
-        //Serial.println(queue[head]);
+        Serial.print(F("Pop: "));
+        Serial.println(queue[head]);
         stream.print(queue[head]);
 
         head = (head + 1) % MAX_QUEUE_SIZE;

@@ -75,7 +75,6 @@ void RotarySwitch::process()
 
         if (m_lastStatePinSwitch == LOW && m_statePinSwitch == HIGH) {
             m_pushButtonCallbackClicked(m_id);
-            m_rotaryCallbackChanged(m_id, true);
         }
 
         m_lastStatePinClk = m_statePinClk;
