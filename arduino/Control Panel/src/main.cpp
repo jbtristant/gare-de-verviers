@@ -7,14 +7,17 @@
 #include <queue.h>
 #include <semphr.h>
 
-SemaphoreHandle_t xSerialSemaphore;
-SemaphoreHandle_t xSerial2Semaphore;
+#include "commandstationclient.h"
 
-TaskHandle_t TaskDccReaderHandle = NULL;
+SemaphoreHandle_t xSerialSemaphore = nullptr;
+SemaphoreHandle_t xSerial2Semaphore = nullptr;
+CommandStationClient* commandStationClient = nullptr;
+
+TaskHandle_t TaskDccReaderHandle = nullptr;
 
 void vTaskDccReader(void *pvParameters);
 
-QueueHandle_t xSerialCharQueue = NULL;
+QueueHandle_t xSerialCharQueue = nullptr;
 
 void vTaskRxInterruptEmulator(void *pvParameters);
 void vTaskDccProcessor(void *pvParameters);
@@ -26,40 +29,31 @@ void setup() {
   Serial.begin(115200);
   Serial2.begin(115200);
 
-  //   if (xSerialSemaphore == NULL) // Check to confirm that the Serial
-  //   Semaphore
-  //                                 // has not already been created.
-  //   {
-  //     xSerialSemaphore =
-  //         xSemaphoreCreateMutex(); // Create a mutex semaphore we will use to
-  //                                  // manage the Serial Port
-  //     if ((xSerialSemaphore) != NULL)
-  //       xSemaphoreGive((xSerialSemaphore)); // Make the Serial Port available
-  //       for
-  //                                           // use, by "Giving" the
-  //                                           Semaphore.
-  //   }
+  xSerialSemaphore = xSemaphoreCreateMutex();
+  xSerial2Semaphore = xSemaphoreCreateMutex();
 
-  //   if (xSerial2Semaphore == NULL) {
-  //     xSerial2Semaphore = xSemaphoreCreateMutex();
-  //     if ((xSerial2Semaphore) != NULL)
-  //       xSemaphoreGive((xSerial2Semaphore));
-  //   }
-
-  xSerialCharQueue = xQueueCreate(255, sizeof(char));
-
-  if (xSerialCharQueue != NULL) {
-    // Tâche 1: Lecture ultra-rapide (Producteur)
-    xTaskCreate(vTaskRxInterruptEmulator, "RxRead", 100, NULL, 2, NULL);
-
-    // Tâche 2: Traitement et renvoi (Consommateur)
-    xTaskCreate(vTaskDccProcessor, "DccProc", 200, NULL, 2, NULL);
-
-    Serial.println(F("Initialisation FreeRTOS OK !"));
-  } else {
-    // Ce message t'aurait sauvé la mise !
-    Serial.println(F("ERREUR FATALE : Impossible d'allouer la RAM pour la Queue."));
+  if (xSerialSemaphore == nullptr || xSerial2Semaphore == nullptr) {
+    Serial.println(F("ERREUR FATALE : Impossible d'allouer les sémaphore."));
+    return;
   }
+
+  commandStationClient = new CommandStationClient(Serial2, xSerial2Semaphore, Serial, xSerialSemaphore);
+
+  // xSerialCharQueue = xQueueCreate(255, sizeof(char));
+
+  // if (xSerialCharQueue != NULL) {
+  //   // Tâche 1: Lecture ultra-rapide (Producteur)
+  //   xTaskCreate(vTaskRxInterruptEmulator, "RxRead", 100, NULL, 2, NULL);
+
+  //   // Tâche 2: Traitement et renvoi (Consommateur)
+  //   xTaskCreate(vTaskDccProcessor, "DccProc", 200, NULL, 3, NULL);
+
+  //   Serial.println(F("Initialisation FreeRTOS OK !"));
+  // } else {
+  //   // Ce message t'aurait sauvé la mise !
+  //   Serial.println(
+  //       F("ERREUR FATALE : Impossible d'allouer la RAM pour la Queue."));
+  // }
 
   // xTaskCreate(
   //     vTaskDccReader, "DccRead",
@@ -97,19 +91,19 @@ void vTaskRxInterruptEmulator(void *pvParameters) {
   for (;;) {
     // S'il y a des données qui attendent dans le gros buffer matériel
     if (Serial2.available() > 0) {
-      
+
       // On vide tout d'un coup dans la file FreeRTOS
       while (Serial2.available() > 0) {
         char c = Serial2.read();
         xQueueSendToBack(xSerialCharQueue, &c, 0);
       }
-      
-      // On a fini de vider, on force FreeRTOS à passer à la tâche 
+
+      // On a fini de vider, on force FreeRTOS à passer à la tâche
       // de traitement (Consommateur) SANS ATTENDRE le prochain tick.
-      taskYIELD(); 
-      
+      taskYIELD();
+
     } else {
-      // S'il n'y a rien à lire sur la ligne, on s'endort 1 tick (15ms) 
+      // S'il n'y a rien à lire sur la ligne, on s'endort 1 tick (15ms)
       // pour laisser le CPU aux écrans et aux boutons.
       vTaskDelay(1);
     }

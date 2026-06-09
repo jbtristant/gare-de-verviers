@@ -4,17 +4,37 @@
 /// CommandStation                                                          ///
 ///////////////////////////////////////////////////////////////////////////////
 
-CommandStationClient::CommandStationClient(Stream &stream,
-                                           SemaphoreHandle_t &xStreamSemaphore,
-                                           Stream &logStream,
-                                           SemaphoreHandle_t &xLogSemaphore)
+CommandStationClient::CommandStationClient(
+    Stream &stream, SemaphoreHandle_t &xStreamSemaphore, Stream &logStream,
+    SemaphoreHandle_t &xLogStreamSemaphore)
     : _trackChanged(nullptr), _locoSpeedChanged(nullptr),
       _turnoutStateChanged(nullptr), m_stream(stream), m_logStream(logStream),
       m_xStreamSemaphore(xStreamSemaphore),
-      m_xLogStreamSemaphore(m_xLogStreamSemaphore), m_lastSendTime(0),
+      m_xLogStreamSemaphore(xLogStreamSemaphore), m_lastSendTime(0),
       m_currentLocomotiveIndex(0), m_locomotiveCount(0), m_trackCount(0) {
   m_tracks[0].initialize(this, 'A', TrackType::Main);
   m_tracks[1].initialize(this, 'B', TrackType::Prog);
+
+  m_xSerialCharQueue = xQueueCreate(255, sizeof(char));
+
+  if (m_xSerialCharQueue != nullptr) {
+    xTaskCreate(CommandStationClient::TaskReadStreamStatic, "Dcc Stream Read",
+                100, this, 2, nullptr);
+
+    xTaskCreate(CommandStationClient::TaskProcessMessageStatic, "DccProc", 200,
+                this, 3, nullptr);
+
+    if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+      m_logStream.println(F("Initialisation FreeRTOS OK !"));
+      xSemaphoreGive(m_xLogStreamSemaphore); // On rend la clé immédiatement
+    }
+  } else {
+    if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+      m_logStream.println(
+          F("ERREUR FATALE : Impossible d'allouer la RAM pour la Queue."));
+      xSemaphoreGive(m_xLogStreamSemaphore); // On rend la clé immédiatement
+    }
+  }
 }
 
 void CommandStationClient::askStatus() { m_queue.push(F("<s>")); }
@@ -26,7 +46,7 @@ void CommandStationClient::askCurrentValues() { m_queue.push(F("<JI>")); }
 void CommandStationClient::askMaxCurrentValues() { m_queue.push(F("<JG>")); }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// Tracks                                                                  ///
+/// Tracks ///
 ///////////////////////////////////////////////////////////////////////////////
 
 void CommandStationClient::powerTrack(OnOff onOff, TrackType track) {
@@ -62,7 +82,7 @@ void CommandStationClient::setTrackChangedCallback(void (*trackChanged)()) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// Cabs, Locomotive, Roster                                                ///
+/// Cabs, Locomotive, Roster ///
 ///////////////////////////////////////////////////////////////////////////////
 
 void CommandStationClient::askRosters() { m_queue.push(F("<JR>")); }
@@ -187,7 +207,7 @@ Turnout *CommandStationClient::getTurnout(uint8_t index) {
 uint8_t CommandStationClient::getTurnoutsCount() { return m_turnoutCount; }
 
 ///////////////////////////////////////////////////////////////////////////////
-/// Turnouts/Points                                                         ///
+/// Turnouts/Points ///
 ///////////////////////////////////////////////////////////////////////////////
 
 void CommandStationClient::askTurnouts() { askTurnoutsJ(); }
@@ -216,6 +236,42 @@ void CommandStationClient::ThrowCloseTurnout(uint16_t id, TurnoutState state) {
   }
 }
 
+void CommandStationClient::TaskReadStreamStatic(void *pvParameters) {
+  CommandStationClient *instance =
+      static_cast<CommandStationClient *>(pvParameters);
+
+  instance->taskReadStreamMessage();
+}
+
+void CommandStationClient::taskReadStreamMessage() {
+  if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+    m_logStream.println(F("-> taskReadStreamMessage is online."));
+    xSemaphoreGive(m_xLogStreamSemaphore); // On rend la clé immédiatement
+  }
+
+  for (;;) {
+    bool dataReceived = false;
+
+    if (xSemaphoreTake(m_xStreamSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
+      if (m_stream.available() > 0) {
+        dataReceived = true;
+
+        while (m_stream.available() > 0) {
+          char c = m_stream.read();
+          xQueueSendToBack(m_xSerialCharQueue, &c, 0);
+        }
+      }
+
+      xSemaphoreGive(m_xStreamSemaphore);
+    }
+    if (dataReceived) {
+      taskYIELD();
+    } else {
+      vTaskDelay(1);
+    }
+  }
+}
+
 void CommandStationClient::TaskProcessMessageStatic(void *pvParameters) {
   CommandStationClient *instance =
       static_cast<CommandStationClient *>(pvParameters);
@@ -224,42 +280,87 @@ void CommandStationClient::TaskProcessMessageStatic(void *pvParameters) {
 }
 
 void CommandStationClient::taskProcessMessage() {
+  char receivedChar;
+  arraySize = 0;
+  inData[0] = '\0';
+
+  // 1. Message de démarrage sécurisé
+  if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+    m_logStream.println(F("-> Tâche Dcc Proc (Consommateur) est EN LIGNE."));
+    xSemaphoreGive(m_xLogStreamSemaphore);
+  }
+
+  // On attend 1 seconde que la centrale DCC soit bien réveillée
+  vTaskDelay(pdMS_TO_TICKS(1000));
+
+  // 2. Envoi de la commande de statut à la centrale (Zone critique Stream)
+  if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+    m_logStream.println(F("Envoi de la commande <s> à la centrale..."));
+    xSemaphoreGive(m_xLogStreamSemaphore);
+  }
+
+  if (xSemaphoreTake(m_xStreamSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+    m_stream.println(F("<s>"));
+    xSemaphoreGive(m_xStreamSemaphore);
+  }
+
+  // 3. Boucle infinie de consommation de la Queue
   for (;;) {
-    if (xSemaphoreTake(m_xStreamSemaphore, 100) == pdTRUE) {
-      while (m_stream.available() > 0) {
-        m_lastSendTime =
-            millis() + sendCommandInterval; // block sending message.
-        if (arraySize < 255) {      // One less than the size of the array
-          inChar = m_stream.read(); // Read a character
-          if (inChar == '<') {
-            arraySize = 0;
-            inData[0] = '\0';
-            // return;
-          } else if (inChar == '>') {
-            inData[arraySize] = '\0';
-            if (arraySize > 0) {
-              processCmd(inData, arraySize);
-            }
-            arraySize = 0;
-            // return;
-          } else {
-            inData[arraySize] = inChar; // Store it
-            arraySize++;                // Increment where to write next
-            inData[arraySize] = '\0';   // Null terminate the string
-          }
+    // On attend un caractère indéfiniment (pas de consommation CPU tant que la
+    // file est vide)
+    if (xQueueReceive(m_xSerialCharQueue, &receivedChar, portMAX_DELAY) ==
+        pdPASS) {
+
+      // Affichage sécurisé du caractère reçu sur le port de log
+      if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+        m_logStream.print(receivedChar);
+        xSemaphoreGive(m_xLogStreamSemaphore);
+      }
+
+      // On a reçu un caractère, on met à jour le délai d'envoi
+      // m_lastSendTime = millis() + sendCommandInterval;
+
+      if (receivedChar == '<') {
+        // Début d'une nouvelle trame
+        arraySize = 0;
+        inData[0] = '\0';
+
+      } else if (receivedChar == '>') {
+        // Fin de trame
+        inData[arraySize] = '\0';
+
+        if (arraySize > 0) {
+          // --- ZONE D'EXÉCUTION ---
+          // La trame est complète, on l'envoie au parseur
+          processCmd(inData, arraySize);
+        }
+
+        // On réinitialise pour la prochaine trame
+        arraySize = 0;
+
+      } else {
+        // Caractère standard (le contenu de la trame)
+        // 254 est la limite pour toujours garder 1 octet pour le '\0' final
+        if (arraySize < 254) {
+          inData[arraySize] = receivedChar;
+          arraySize++;
+          inData[arraySize] = '\0';
         } else {
+          // Sécurité : Buffer plein mais aucun '>' reçu (trame corrompue)
+          // On vide le buffer pour éviter un débordement de mémoire
           arraySize = 0;
         }
       }
-      xSemaphoreGive(m_xStreamSemaphore);
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
 
 void CommandStationClient::processCmd(char data[], byte size) {
-  m_logStream.print(F("Input data: "));
-  m_logStream.println(inData);
+  if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+    m_logStream.print(F(" -> Input data cleaned: "));
+    m_logStream.println(inData);
+    xSemaphoreGive(m_xLogStreamSemaphore);
+  }
 
   switch (data[0]) {
   case 'p':
@@ -279,13 +380,20 @@ void CommandStationClient::processCmd(char data[], byte size) {
     break;
 
   case 'X':
-    Serial.println(F("Commande refusée par la centrale."));
+    if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+
+      m_logStream.println(F("Commande refusée par la centrale."));
+      xSemaphoreGive(m_xLogStreamSemaphore);
+    }
     break;
 
   default:
-    // Print not yet implemented messages (ID, Power status, etc.)
-    Serial.print(F("Other message : "));
-    Serial.println(data);
+    if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+      // Print not yet implemented messages (ID, Power status, etc.)
+      m_logStream.print(F("Other message : "));
+      m_logStream.println(data);
+      xSemaphoreGive(m_xLogStreamSemaphore);
+    }
     break;
   }
   // m_lastSendTime = millis() - sendCommandInterval + 10;
@@ -310,10 +418,13 @@ void CommandStationClient::handlePowerTrackState(char data[], byte size) {
   }
 
   if (matched == 2) {
-    m_logStream.print(F("Track "));
-    m_logStream.print(track);
-    state == 1 ? m_logStream.println(F(" is on"))
-               : m_logStream.println(F(" is off"));
+    if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+      m_logStream.print(F("Track "));
+      m_logStream.print(track);
+      state == 1 ? m_logStream.println(F(" is on"))
+                 : m_logStream.println(F(" is off"));
+      xSemaphoreGive(m_xLogStreamSemaphore);
+    }
     if (track == 'A') {
       m_tracks[0].setPowerPrivate(state == 1 ? OnOff::On : OnOff::Off);
     } else if (track == 'B') {
@@ -572,13 +683,13 @@ void CommandStationClient::taskProcessPendingCommand() {
         m_pendingLocomotives[m_currentLocomotiveIndex].isPending = false;
 
         m_lastSendTime = millis();
-        //return;
+        // return;
       }
 
       if (!m_queue.isEmpty()) {
         if (m_queue.pop(m_stream)) {
           m_lastSendTime = millis();
-          //return;
+          // return;
         }
       }
       xSemaphoreGive(m_xStreamSemaphore);

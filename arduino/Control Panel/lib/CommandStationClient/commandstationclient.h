@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino_FreeRTOS.h>
+#include <queue.h>
 #include <semphr.h>
 
 #include "types.h"
@@ -18,10 +19,12 @@ constexpr unsigned int sendCommandInterval = 40;
 class CommandStationClient {
 public:
   explicit CommandStationClient(Stream &stream, SemaphoreHandle_t &xStreamSemaphore, 
-                                Stream &logStream, SemaphoreHandle_t &xLogSemaphore);
+                                Stream &logStream, SemaphoreHandle_t &xLogStreamSemaphore);
 
+  static void TaskReadStreamStatic(void *pvParameters);
   static void TaskProcessMessageStatic(void *pvParameters);
   static void TaskProcessPendingCommandStatic(void *pvParameters);
+  void taskReadStreamMessage();
   void taskProcessMessage();
   void taskProcessPendingCommand();
 
@@ -101,8 +104,10 @@ private:
   SemaphoreHandle_t &m_xStreamSemaphore;
   SemaphoreHandle_t &m_xLogStreamSemaphore;
 
+  QueueHandle_t m_xSerialCharQueue;
+
   char inData[256];
-  char inChar = -1;
+  //char inChar = -1;
   byte arraySize = 0;
 
   LocomotiveCommand m_pendingLocomotives[maxLocomotives];
