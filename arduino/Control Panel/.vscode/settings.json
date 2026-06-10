@@ -1,0 +1,19 @@
+{
+    // Force l'utilisation de clangd pour le formatage du C et C++
+    "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+    "[cpp]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+        "editor.tabSize": 4,
+        "editor.detectIndentation": false
+    },
+    "[c]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd",
+        "editor.tabSize": 4,
+        "editor.detectIndentation": false
+    },
+
+    // Sécurité : Si l'extension liée à PlatformIO tente de reprendre la main,
+    // on lui ordonne explicitement de lire votre fichier .clang-format externe
+    "C_Cpp.formatting": "Default",
+    "C_Cpp.clang_format_style": "file"
+}
