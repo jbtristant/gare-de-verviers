@@ -7,6 +7,7 @@
 #include "mainmenu.h"
 
 #include "commandstationclient.h"
+#include "images.h"
 #include "locomotive.h"
 #include "track.h"
 #include "turnout.h"
@@ -814,8 +815,21 @@ void MainMenu::drawDrivingMode()
     if (vitesseFiltree < 0)   vitesseFiltree = 0;
     if (vitesseFiltree > 126) vitesseFiltree = 126;
 
-    // Calcul de la largeur de la jauge (0 à 126 vers 0 à 98 pixels)
-    int largeurJauge = map(vitesseFiltree, 0, 126, 0, 98);
+    // Calcul de la largeur de la jauge (0 à 126 vers 0 à 98 + 5 pixels)
+    int largeurJauge = map(vitesseFiltree, 0, 126, 0, 98) + 5;
+
+    // --- SÉLECTION DE L'ICÔNE SELON LA VITESSE ---
+    // const unsigned char* bitmapSelectionne = epd_bitmap_icons8_snail_24; // Par défaut : Escargot
+
+    // if (vitesseFiltree > 100) {
+    //     bitmapSelectionne = epd_bitmap_icons8_hummingbird_24; // Très rapide : Colibri
+    // } else if (vitesseFiltree > 70) {
+    //     bitmapSelectionne = epd_bitmap_icons8_rabbit_24;      // Rapide : Lapin
+    // } else if (vitesseFiltree > 40) {
+    //     bitmapSelectionne = epd_bitmap_icons8_cat_24;         // Moyen : Chat
+    // } else if (vitesseFiltree > 12) {
+    //     bitmapSelectionne = epd_bitmap_icons8_turtle_24;      // Lent : Tortue
+    // }
 
     // Préparation des buffers textuels
     char titreBuffer[22];
@@ -843,14 +857,25 @@ void MainMenu::drawDrivingMode()
         m_screenMenu->setFont(u8g2_font_6x12_tf);
         m_screenMenu->drawStr(100, 30, vitBuffer);
 
+        if (vitesseFiltree > 0)
+            m_screenMenu->drawXBMP(2, 33, 24, 24, epd_bitmap_icons8_snail_24);
+        if (vitesseFiltree > 16)
+            m_screenMenu->drawXBMP(27, 33, 24, 24, epd_bitmap_icons8_turtle_24);
+        if (vitesseFiltree > 40) 
+            m_screenMenu->drawXBMP(52, 33, 24, 24, epd_bitmap_icons8_cat_24);
+        if (vitesseFiltree > 70) 
+            m_screenMenu->drawXBMP(77, 33, 24, 24, epd_bitmap_icons8_rabbit_24);
+        if (vitesseFiltree > 100) 
+            m_screenMenu->drawXBMP(102, 33, 24, 24, epd_bitmap_icons8_hummingbird_24);
+
         // DESSIN DE LA JAUGE GRAPHIQUE
-        m_screenMenu->drawFrame(0, 36, 100, 6);
-        m_screenMenu->drawBox(1, 37, largeurJauge, 4);
+        m_screenMenu->drawFrame(5, 58, 105, 6);
+        m_screenMenu->drawBox(6, 59, largeurJauge, 4);
 
         // PIED DE PAGE : INSTRUCTIONS
-        m_screenMenu->drawHLine(0, 50, 128);
-        m_screenMenu->setFont(u8g2_font_6x10_tf);
-        m_screenMenu->drawStr(0, 61, "> CLIC pour STOP & RETOUR");
+        // m_screenMenu->drawHLine(0, 50, 128);
+        // m_screenMenu->setFont(u8g2_font_6x10_tf);
+        // m_screenMenu->drawStr(0, 61, "> CLIC pour STOP & RETOUR");
 
     } while ( m_screenMenu->nextPage() );
 }
