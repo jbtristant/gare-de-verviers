@@ -21,6 +21,8 @@ class MainMenu
     void menuUp();
     void menuDown();
 
+    void selectLocomotive();
+
     void onTrackChanged();
     void onLocomotiveChanged();
     void onTurnoutStateChanged(uint16_t id, TurnoutState state);

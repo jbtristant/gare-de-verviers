@@ -6,32 +6,34 @@
 
 PushButton::PushButton(uint8_t pin, int id)
 {
-  m_pin = pin;
-  m_id = id;
-  m_state = 1;
-  m_lastState = 1;
-  m_time = 0;
+    m_pin = pin;
+    m_id = id;
+    m_state = 1;
+    m_lastState = 1;
+    m_time = 0;
 }
 
-void PushButton::begin() 
-{
-  pinMode(m_pin, INPUT_PULLUP);
-}
+void PushButton::begin() { pinMode(m_pin, INPUT_PULLUP); }
 
 void PushButton::process()
 {
-  if (m_time + 50 < millis()) {
+    if (m_time + 50 < millis()) {
+        m_state = digitalRead(m_pin);
+        if (m_state == 0 && m_lastState == 1) {
+            _pushButtonCallbackClicked(m_id);
+        }
+        m_lastState = m_state;
+        m_time = millis();
+    }
+}
+
+void PushButton::xProcess()
+{
     m_state = digitalRead(m_pin);
     if (m_state == 0 && m_lastState == 1) {
-      _pushButtonCallbackClicked(m_id);
+        _pushButtonCallbackClicked(m_id);
     }
     m_lastState = m_state;
-    m_time = millis();
-  }
 }
 
-void PushButton::setCallbackClicked(void (*pushButtonCallbackClicked)(int))
-{
-  _pushButtonCallbackClicked = pushButtonCallbackClicked;
-}
-
+void PushButton::setCallbackClicked(void (*pushButtonCallbackClicked)(int)) { _pushButtonCallbackClicked = pushButtonCallbackClicked; }

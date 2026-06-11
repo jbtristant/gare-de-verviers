@@ -12,6 +12,7 @@ class PushButton
     void setCallbackClicked(void (*pushButtonCallbackClicked)(int));
     void begin();
     void process();
+    void xProcess();
 
   private:
     void (*_pushButtonCallbackClicked)(int);

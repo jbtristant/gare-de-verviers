@@ -74,6 +74,13 @@ void MainMenu::onTurnoutStateChanged(uint16_t id, TurnoutState state)
         drawUI();
 }
 
+void MainMenu::selectLocomotive()
+{
+    m_currentContext = LOCO_MENU;
+    m_menuIndex = 0;
+    drawUI();
+}
+
 void MainMenu::menuDown()
 {
     switch (m_currentContext) {

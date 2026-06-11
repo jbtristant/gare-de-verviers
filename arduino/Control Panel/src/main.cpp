@@ -12,6 +12,7 @@
 #include "commandstationclient.h"
 #include "locomotive.h"
 #include "mainmenu.h"
+#include "pushbutton.h"
 #include "rotaryswitch.h"
 #include "turnout.h"
 
@@ -35,11 +36,17 @@ Adafruit_NeoPixel WS2812B(NUM_PIXELS, PIN_WS2812B, NEO_GRB + NEO_KHZ800);
 U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
 MainMenu mainMenu;
 
+PushButton pushButton(7, 0);
+
+void taskReadIO(void *pvParameters);
+
 void onRotarySwitchClicked(uint8_t id);
 void onRotarySwitchChanged(uint8_t id, bool clockWize);
 void on_track_changed();
 void on_locoSpeed_changed(uint16_t address, int8_t speed, Direction direction);
 void on_turnoutState_changed(uint16_t id, TurnoutState state);
+
+void on_pushButton_clicked(int id);
 
 void updateThrottleDisplay(int8_t throttleValue, Direction direction);
 
@@ -79,6 +86,11 @@ void setup()
     mainMenu.initialize(&commandStationClient, &u8g2, &Serial, xSerialSemaphore);
 
     commandStationClient.setLocoSpeedChangedCallback(on_locoSpeed_changed);
+
+    pushButton.setCallbackClicked(on_pushButton_clicked);
+    pushButton.begin();
+
+    xTaskCreate(taskReadIO, "MainReadIO", 200, NULL, 4, NULL);
 
     if (xSemaphoreTake(xSerialSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
         Serial.println(F("Main::Setup vTaskStartScheduler"));
@@ -205,4 +217,29 @@ void updateThrottleDisplay(int8_t throttleValue, Direction direction)
         WS2812B.setPixelColor(ledIndex, WS2812B.Color(r, g, b));
     }
     WS2812B.show();
+}
+
+void on_pushButton_clicked(int id)
+{
+    if (xSemaphoreTake(xSerialSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+        Serial.print(F("Button "));
+        Serial.print(id);
+        Serial.println(F(" pressed"));
+        xSemaphoreGive(xSerialSemaphore);
+    }
+
+    mainMenu.selectLocomotive();
+}
+
+void taskReadIO(void *pvParameters)
+{
+    if (xSemaphoreTake(xSerialSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+        Serial.println(F("-> Main::taskReadIO is online."));
+        xSemaphoreGive(xSerialSemaphore);
+    }
+
+    for (;;) {
+        pushButton.xProcess();
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
 }
