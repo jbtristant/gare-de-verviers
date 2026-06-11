@@ -26,7 +26,7 @@ class RotarySwitch
 
     uint8_t m_pinSwitch, m_pinClk, m_pinDt;
     uint8_t m_id;
-    volatile int m_statePinSwitch, m_statePinClk, m_statePinDt;
-    int m_lastStatePinSwitch, m_lastStatePinClk, m_lastStatePinDt;
+    bool m_statePinSwitch, m_statePinClk, m_statePinDt;
+    bool m_lastStatePinSwitch, m_lastStatePinClk, m_lastStatePinDt;
     unsigned long m_time;
 };

@@ -39,6 +39,8 @@ static inline uint8_t fastDigitalRead(uint8_t pin)
 return digitalRead(pin);
 #endif
 
+const int8_t ENCODER_STATES[] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
+
 RotarySwitch::RotarySwitch(uint8_t pinSwitch, uint8_t pinClk, uint8_t pinDt, uint8_t id)
     : m_pushButtonCallbackClicked(nullptr), m_rotaryCallbackChanged(nullptr), m_logStream(nullptr), m_xLogStreamSemaphore(nullptr), m_pinSwitch(pinSwitch),
       m_pinClk(pinClk), m_pinDt(pinDt), m_id(id)
@@ -102,6 +104,28 @@ void RotarySwitch::taskReadPins()
                 xSemaphoreGive(m_xLogStreamSemaphore); // On rend la clé immédiatement
             }
         }
+
+        // uint8_t state = (m_lastStatePinClk << 3) | (m_statePinClk << 2) | (m_lastStatePinDt << 1) | m_statePinDt;
+
+        // int8_t mouvement = ENCODER_STATES[state];
+
+        // if (mouvement > 0) {
+        //     if (m_rotaryCallbackChanged != nullptr)
+        //         m_rotaryCallbackChanged(m_id, true);
+        //     if (xSemaphoreTake(m_xLogStreamSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+        //         m_logStream->println(F("taskReadPins rotary turn clockwize"));
+
+        //         xSemaphoreGive(m_xLogStreamSemaphore); // On rend la clé immédiatement
+        //     }
+        // } else if (mouvement < 0) {
+        //     if (m_rotaryCallbackChanged != nullptr)
+        //         m_rotaryCallbackChanged(m_id, false);
+        //     if (xSemaphoreTake(m_xLogStreamSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+        //         m_logStream->println(F("taskReadPins rotary turn counterclockwize"));
+
+        //         xSemaphoreGive(m_xLogStreamSemaphore); // On rend la clé immédiatement
+        //     }
+        // }
 
         if ((m_lastStatePinClk == HIGH) &&(m_statePinClk == LOW) &&  (m_lastStatePinDt == HIGH) && (m_statePinDt == HIGH)) {
             // if (m_rotaryCallbackChanged != nullptr)
