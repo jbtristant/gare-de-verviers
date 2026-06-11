@@ -18,15 +18,19 @@ constexpr unsigned int sendCommandInterval = 40;
 
 class CommandStationClient {
 public:
-  explicit CommandStationClient(Stream &stream, SemaphoreHandle_t &xStreamSemaphore, 
-                                Stream &logStream, SemaphoreHandle_t &xLogStreamSemaphore);
+  explicit CommandStationClient();
+  
+  void initialize(Stream *stream, SemaphoreHandle_t xStreamSemaphore, 
+                                Stream *logStream, SemaphoreHandle_t xLogStreamSemaphore);
 
   static void TaskReadStreamStatic(void *pvParameters);
   static void TaskProcessMessageStatic(void *pvParameters);
   static void TaskProcessPendingCommandStatic(void *pvParameters);
+  static void TaskProcessPendingLocomotiveCommandStatic(void *pvParameters);
   void taskReadStreamMessage();
   void taskProcessMessage();
   void taskProcessPendingCommand();
+  void taskProcessPendingLocomotiveCommand();
 
   // Commandes
   void askStatus();
@@ -99,10 +103,10 @@ private:
 
   CommandQueue m_queue;
 
-  Stream &m_stream;
-  Stream &m_logStream;
-  SemaphoreHandle_t &m_xStreamSemaphore;
-  SemaphoreHandle_t &m_xLogStreamSemaphore;
+  Stream *m_stream;
+  Stream *m_logStream;
+  SemaphoreHandle_t m_xStreamSemaphore;
+  SemaphoreHandle_t m_xLogStreamSemaphore;
 
   QueueHandle_t m_xSerialCharQueue;
 
@@ -115,7 +119,6 @@ private:
   Turnout m_turnouts[maxTurnouts];
   Track m_tracks[maxTracks];
 
-  unsigned long m_lastSendTime = 0;
   uint8_t m_currentLocomotiveIndex = 0;
   uint8_t m_locomotiveCount = 0;
   uint8_t m_turnoutCount = 0;

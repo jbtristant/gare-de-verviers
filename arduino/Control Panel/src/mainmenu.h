@@ -6,7 +6,7 @@
 #include "turnout.h"
 
 class CommandStationClient;
-class U8G2_SSD1306_128X64_NONAME_F_HW_I2C;
+class U8G2_SSD1306_128X64_NONAME_1_HW_I2C;
 
 class MainMenu
 {
@@ -14,7 +14,7 @@ class MainMenu
     MainMenu();
 
     void initialize(CommandStationClient *client,
-                    U8G2_SSD1306_128X64_NONAME_F_HW_I2C *screenMenu,
+                    U8G2_SSD1306_128X64_NONAME_1_HW_I2C *screenMenu,
                     Stream *logStream, SemaphoreHandle_t xLogStreamSemaphore);
 
     void buttonPress();
@@ -40,10 +40,12 @@ class MainMenu
     void handlePress();
     void writeConsoleLogLine();
     void writeConsoleLogReturn(uint8_t size);
+
+    static void TaskDrawUIStatic(void *pvParameters);
     void drawUI();
+    void taskDrawUI();
 
     void drawMainMenu();
-    void dessinerMenuOptionnel();
     void drawTrackMenu();
     void drawLocomotiveMenu();
     void drawTurnoutMenu();
@@ -57,9 +59,12 @@ class MainMenu
     const int8_t m_locomotiveSpeedStep = 4;
 
     CommandStationClient *m_commandStationClient;
-    U8G2_SSD1306_128X64_NONAME_F_HW_I2C *m_screenMenu;
+    U8G2_SSD1306_128X64_NONAME_1_HW_I2C *m_screenMenu;
     Stream *m_logStream;
     SemaphoreHandle_t m_xLogStreamSemaphore;
+
+    SemaphoreHandle_t m_xDisplaySemaphore;
+    TaskHandle_t m_xDisplayTaskHandle;
 
     AppContext m_currentContext;
     uint8_t m_menuIndex;

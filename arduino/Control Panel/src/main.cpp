@@ -29,10 +29,10 @@
 
 SemaphoreHandle_t xSerialSemaphore = nullptr;
 SemaphoreHandle_t xSerial2Semaphore = nullptr;
-CommandStationClient *commandStationClient = nullptr;
+CommandStationClient commandStationClient;
 RotarySwitch rotarySwitch(ROTARY_SWITCH_SW_PIN, ROTARY_SWITCH_CLK_PIN, ROTARY_SWITCH_DT_PIN, 0);
 Adafruit_NeoPixel WS2812B(NUM_PIXELS, PIN_WS2812B, NEO_GRB + NEO_KHZ800);
-U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
+U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE);
 MainMenu mainMenu;
 
 void onRotarySwitchClicked(uint8_t id);
@@ -57,9 +57,11 @@ void setup()
     if (xSerialSemaphore == nullptr || xSerial2Semaphore == nullptr) {
         Serial.println(F("ERREUR FATALE : Impossible d'allouer les sémaphore."));
         return;
+    } else {
+        Serial.println(F("Sémaphore alloué."));
     }
 
-    commandStationClient = new CommandStationClient(Serial2, xSerial2Semaphore, Serial, xSerialSemaphore);
+    commandStationClient.initialize(&Serial2, xSerial2Semaphore, &Serial, xSerialSemaphore);
 
     WS2812B.begin();
     WS2812B.setBrightness(32);
@@ -74,14 +76,22 @@ void setup()
 
     rotarySwitch.initialize(&Serial, xSerialSemaphore);
 
-    mainMenu.initialize(commandStationClient, &u8g2, &Serial, xSerialSemaphore);
+    mainMenu.initialize(&commandStationClient, &u8g2, &Serial, xSerialSemaphore);
+
+    commandStationClient.setLocoSpeedChangedCallback(on_locoSpeed_changed);
+
+    if (xSemaphoreTake(xSerialSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+        Serial.println(F("Main::Setup vTaskStartScheduler"));
+        xSemaphoreGive(xSerialSemaphore);
+    }
+    vTaskStartScheduler();
 }
 
 void loop() {}
 
 void onRotarySwitchClicked(uint8_t id)
 {
-    if (xSemaphoreTake(xSerialSemaphore, portMAX_DELAY) == pdTRUE) {
+    if (xSemaphoreTake(xSerialSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
         Serial.println(F("Rotary switch clicked"));
         xSemaphoreGive(xSerialSemaphore);
     }
@@ -92,13 +102,13 @@ void onRotarySwitchClicked(uint8_t id)
 void onRotarySwitchChanged(uint8_t id, bool clockWize)
 {
     if (clockWize) {
-        if (xSemaphoreTake(xSerialSemaphore, portMAX_DELAY) == pdTRUE) {
+        if (xSemaphoreTake(xSerialSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
             Serial.println(F("Rotary switch turn clockwize"));
             xSemaphoreGive(xSerialSemaphore);
         }
         mainMenu.menuDown();
     } else {
-        if (xSemaphoreTake(xSerialSemaphore, portMAX_DELAY) == pdTRUE) {
+        if (xSemaphoreTake(xSerialSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
             Serial.println(F("Rotary switch turn counter clockwize"));
             xSemaphoreGive(xSerialSemaphore);
         }
@@ -106,12 +116,19 @@ void onRotarySwitchChanged(uint8_t id, bool clockWize)
     }
 }
 
-void on_track_changed() { mainMenu.onTrackChanged(); }
+void on_track_changed()
+{
+    if (xSemaphoreTake(xSerialSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+        Serial.println(F("Track changed"));
+        xSemaphoreGive(xSerialSemaphore);
+    }
+    mainMenu.onTrackChanged();
+}
 
 void on_locoSpeed_changed(uint16_t address, int8_t speed, Direction direction)
 {
-    if (xSemaphoreTake(xSerialSemaphore, portMAX_DELAY) == pdTRUE) {
-        Serial.print("Speed: ");
+    if (xSemaphoreTake(xSerialSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+        Serial.print(F("Speed: "));
         Serial.println(speed);
         xSemaphoreGive(xSerialSemaphore);
     }
@@ -120,7 +137,17 @@ void on_locoSpeed_changed(uint16_t address, int8_t speed, Direction direction)
     mainMenu.onLocomotiveChanged();
 }
 
-void on_turnoutState_changed(uint16_t id, TurnoutState state) { mainMenu.onTurnoutStateChanged(id, state); }
+void on_turnoutState_changed(uint16_t id, TurnoutState state)
+{
+    if (xSemaphoreTake(xSerialSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+        Serial.print(F("Turnout "));
+        Serial.print(id);
+        Serial.print(F(" changed to "));
+        Serial.println((uint8_t)state);
+        xSemaphoreGive(xSerialSemaphore);
+    }
+    mainMenu.onTurnoutStateChanged(id, state);
+}
 
 uint8_t gammaCorrect(uint8_t val)
 {

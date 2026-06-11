@@ -54,7 +54,7 @@ void RotarySwitch::initialize(Stream *logStream, SemaphoreHandle_t xLogStreamSem
     m_logStream = logStream;
     m_xLogStreamSemaphore = xLogStreamSemaphore;
 
-    xTaskCreate(RotarySwitch::TaskReadPinsStatic, "RotarySwitch", 300, this, 2, NULL);
+    xTaskCreate(RotarySwitch::TaskReadPinsStatic, "RotarySwitch", 200, this, 3, NULL);
 }
 
 void RotarySwitch::TaskReadPinsStatic(void *pvParameters)
@@ -66,8 +66,8 @@ void RotarySwitch::TaskReadPinsStatic(void *pvParameters)
 
 void RotarySwitch::taskReadPins()
 {
-    if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
-        m_logStream->println(F("-> taskReadPins is online."));
+    if (xSemaphoreTake(m_xLogStreamSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+        m_logStream->println(F("-> RotarySwitch::taskReadPins is online."));
         xSemaphoreGive(m_xLogStreamSemaphore); // On rend la clé immédiatement
     }
 
@@ -85,7 +85,7 @@ void RotarySwitch::taskReadPins()
         m_statePinSwitch = digitalRead(m_pinSwitch);
 
         if (m_statePinClk != m_lastStatePinClk || m_statePinDt != m_lastStatePinDt) {
-            if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+            if (xSemaphoreTake(m_xLogStreamSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
                 m_logStream->print(F("taskReadPins read data pins:"));
                 m_logStream->print(m_lastStatePinClk);
                 m_logStream->print(F(" "));
@@ -106,7 +106,7 @@ void RotarySwitch::taskReadPins()
         if ((m_lastStatePinClk == HIGH) &&(m_statePinClk == LOW) &&  (m_lastStatePinDt == HIGH) && (m_statePinDt == HIGH)) {
             // if (m_rotaryCallbackChanged != nullptr)
             m_rotaryCallbackChanged(m_id, true);
-            if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+            if (xSemaphoreTake(m_xLogStreamSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
                 m_logStream->println(F("taskReadPins rotary turn clockwize"));
 
                 xSemaphoreGive(m_xLogStreamSemaphore); // On rend la clé immédiatement
@@ -116,7 +116,7 @@ void RotarySwitch::taskReadPins()
         if ((m_lastStatePinClk == HIGH) &&(m_statePinClk == HIGH) &&  (m_lastStatePinDt == HIGH) && (m_statePinDt == LOW)) {
             // if (m_rotaryCallbackChanged != nullptr)
             m_rotaryCallbackChanged(m_id, false);
-            if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+            if (xSemaphoreTake(m_xLogStreamSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
                 m_logStream->println(F("taskReadPins rotary turn counterclockwize"));
 
                 xSemaphoreGive(m_xLogStreamSemaphore); // On rend la clé immédiatement
@@ -126,7 +126,7 @@ void RotarySwitch::taskReadPins()
         if (m_lastStatePinSwitch == LOW && m_statePinSwitch == HIGH) {
             // if (m_pushButtonCallbackClicked != nullptr)
             m_pushButtonCallbackClicked(m_id);
-            if (xSemaphoreTake(m_xLogStreamSemaphore, portMAX_DELAY) == pdTRUE) {
+            if (xSemaphoreTake(m_xLogStreamSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
                 m_logStream->println(F("taskReadPins rotary turn click"));
 
                 xSemaphoreGive(m_xLogStreamSemaphore); // On rend la clé immédiatement
